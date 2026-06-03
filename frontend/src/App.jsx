@@ -607,22 +607,34 @@ const SUGGESTED_QUESTIONS = [
 
 // ─── Advisor Panel ────────────────────────────────────────────────────────────
 
-const AdvisorPanel = ({ brief, city, topic, onClose }) => {
+const AdvisorPanel = ({ brief, briefLoading, city, topic, onClose }) => {
   const [messages, setMessages]     = useState([{
     role: 'advisor',
-    content: `I've analyzed the intelligence brief for your **${topic}** project in **${city.split(',')[0]}**. Risk score: **${brief.riskScore}/100 (${brief.riskLevel})**.\n\nAsk me anything about the risk landscape, who to engage, timing, or click a suggested question below.`,
+    content: `Hi! I'm your Risk Advisor for the **${topic}** project in **${city.split(',')[0]}**.${briefLoading ? '\n\nAnalyzing your feeds — I\'ll be ready to answer questions in a moment…' : brief ? `\n\nRisk score: **${brief.riskScore}/100 (${brief.riskLevel})**.\n\nAsk me anything about the risk landscape, who to engage, timing, or click a suggested question below.` : '\n\nClick **Generate Brief** to analyze your feeds, then ask me anything about the risk landscape, who to engage, timing, and more.'}`,
   }]);
   const [input, setInput]           = useState('');
   const [loading, setLoading]       = useState(false);
   const bottomRef                   = useRef(null);
   const inputRef                    = useRef(null);
 
+  // When brief finishes loading, add a ready message
+  const prevBriefRef = useRef(brief);
+  useEffect(() => {
+    if (!prevBriefRef.current && brief) {
+      setMessages(prev => [...prev, {
+        role: 'advisor',
+        content: `Analysis complete! Risk score: **${brief.riskScore}/100 (${brief.riskLevel})**.\n\nAsk me anything about the risk landscape, who to engage, timing, or click a suggested question below.`,
+      }]);
+    }
+    prevBriefRef.current = brief;
+  }, [brief]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const ask = async (question) => {
-    if (!question.trim() || loading) return;
+    if (!question.trim() || loading || !brief) return;
     const q = question.trim();
     setMessages(prev => [...prev, { role: 'user', content: q }]);
     setInput('');
@@ -712,7 +724,7 @@ const AdvisorPanel = ({ brief, city, topic, onClose }) => {
       </div>
 
       {/* Suggested questions */}
-      {suggestions.length > 0 && (
+      {suggestions.length > 0 && brief && (
         <div className="px-4 pb-2 flex-shrink-0">
           <div className="flex flex-wrap gap-1.5">
             {suggestions.map(q => (
@@ -728,17 +740,17 @@ const AdvisorPanel = ({ brief, city, topic, onClose }) => {
       {/* Input */}
       <form onSubmit={handleSubmit}
         className="px-4 pb-4 pt-2 border-t border-slate-700/50 flex-shrink-0">
-        <div className="flex gap-2 items-center bg-[#1e2330] border border-slate-700 rounded-xl px-3 py-2 focus-within:border-violet-500 focus-within:ring-1 focus-within:ring-violet-500/40 transition-all">
+        <div className={`flex gap-2 items-center bg-[#1e2330] border rounded-xl px-3 py-2 transition-all ${brief ? 'border-slate-700 focus-within:border-violet-500 focus-within:ring-1 focus-within:ring-violet-500/40' : 'border-slate-700/40 opacity-50'}`}>
           <input
             ref={inputRef}
             type="text"
             value={input}
             onChange={e => setInput(e.target.value)}
-            placeholder="Ask about risks, actors, timing…"
-            disabled={loading}
+            placeholder={briefLoading ? 'Analyzing feeds, please wait…' : brief ? 'Ask about risks, actors, timing…' : 'Generate a brief first to ask questions…'}
+            disabled={loading || !brief}
             className="flex-1 bg-transparent text-white text-sm outline-none placeholder-slate-600"
           />
-          <button type="submit" disabled={!input.trim() || loading}
+          <button type="submit" disabled={!input.trim() || loading || !brief}
             className="p-1.5 rounded-lg bg-violet-700 hover:bg-violet-600 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors flex-shrink-0">
             <Send size={13} />
           </button>
@@ -813,6 +825,7 @@ export default function App() {
   const [briefLoading,     setBriefLoading]     = useState(false);
   const [briefError,       setBriefError]       = useState(null);
   const [showAdvisor,      setShowAdvisor]      = useState(false);
+  const [showBriefModal,   setShowBriefModal]   = useState(false);
 
   const toggleCollapse = (key) => setCollapsedWidgets(prev => {
     const next = new Set(prev);
@@ -857,8 +870,9 @@ export default function App() {
 
   const resetDefaults = () => setSelectedQueries(new Set(DEFAULT_IDS));
 
-  const generateBrief = async () => {
+  const generateBrief = async (showModal = false) => {
     if (!data) return;
+    if (brief) { if (showModal) setShowBriefModal(true); return; }
     setBriefLoading(true);
     setBriefError(null);
     try {
@@ -870,7 +884,7 @@ export default function App() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? `API returned ${res.status}`);
       setBrief(json);
-      setShowAdvisor(true);
+      if (showModal) setShowBriefModal(true);
     } catch (err) {
       setBriefError(err.message);
     } finally {
@@ -909,28 +923,26 @@ export default function App() {
               {data && (
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={generateBrief}
+                    onClick={() => brief ? setShowBriefModal(true) : generateBrief(true)}
                     disabled={briefLoading}
                     className="flex items-center gap-2 px-4 py-1.5 bg-violet-700 hover:bg-violet-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors shadow-lg"
                   >
                     {briefLoading
                       ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       : <Brain size={16} />}
-                    {briefLoading ? 'Generating…' : 'Generate Brief'}
+                    {briefLoading ? 'Generating…' : brief ? 'Show Brief Intelligence' : 'Generate Brief'}
                   </button>
-                  {brief && (
-                    <button
-                      onClick={() => setShowAdvisor(v => !v)}
-                      className={`flex items-center gap-2 px-4 py-1.5 text-sm font-medium rounded-lg transition-colors shadow-lg border ${
-                        showAdvisor
-                          ? 'bg-violet-900/40 border-violet-600/50 text-violet-300'
-                          : 'bg-[#1e2330] border-slate-700 text-slate-300 hover:border-violet-600/50 hover:text-violet-300'
-                      }`}
-                    >
-                      <MessageSquare size={16} />
-                      {showAdvisor ? 'Hide Advisor' : 'Ask Advisor'}
-                    </button>
-                  )}
+                  <button
+                    onClick={() => { setShowAdvisor(v => !v); if (!brief && !briefLoading) generateBrief(false); }}
+                    className={`flex items-center gap-2 px-4 py-1.5 text-sm font-medium rounded-lg transition-colors shadow-lg border ${
+                      showAdvisor
+                        ? 'bg-violet-900/40 border-violet-600/50 text-violet-300'
+                        : 'bg-[#1e2330] border-slate-700 text-slate-300 hover:border-violet-600/50 hover:text-violet-300'
+                    }`}
+                  >
+                    <MessageSquare size={16} />
+                    {showAdvisor ? 'Hide AI' : 'Ask AI'}
+                  </button>
                 </div>
               )}
             </div>
@@ -1076,12 +1088,13 @@ export default function App() {
       </div>
 
       {/* ── Intelligence Brief Modal ── */}
-      {brief && !showAdvisor && <BriefModal brief={brief} onClose={() => setBrief(null)} />}
+      {brief && showBriefModal && <BriefModal brief={brief} onClose={() => setShowBriefModal(false)} />}
 
       {/* ── Advisor Panel ── */}
-      {brief && showAdvisor && (
+      {showAdvisor && (
         <AdvisorPanel
           brief={brief}
+          briefLoading={briefLoading}
           city={city}
           topic={topic}
           onClose={() => setShowAdvisor(false)}
